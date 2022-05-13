@@ -26,26 +26,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="testImage.png">
-      <Filter>Файлы ресурсов</Filter>
-    </Image>
-    <Image Include="testImage2.png">
-      <Filter>Файлы ресурсов</Filter>
-    </Image>
-    <Image Include="testImage3.png">
-      <Filter>Файлы ресурсов</Filter>
-    </Image>
-    <Image Include="testImage4.png">
-      <Filter>Файлы ресурсов</Filter>
-    </Image>
-    <Image Include="testImage5.png">
-      <Filter>Файлы ресурсов</Filter>
-    </Image>
-    <Image Include="testImage7.png">
-      <Filter>Файлы ресурсов</Filter>
-    </Image>
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="ColorPool.h">
       <Filter>Файлы заголовков</Filter>
     </ClInclude>

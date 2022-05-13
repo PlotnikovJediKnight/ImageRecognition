@@ -156,14 +156,6 @@
     <ClCompile Include="Main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="testImage.png" />
-    <Image Include="testImage2.png" />
-    <Image Include="testImage3.png" />
-    <Image Include="testImage4.png" />
-    <Image Include="testImage5.png" />
-    <Image Include="testImage7.png" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="ColorPool.h" />
     <ClInclude Include="Contour.h" />
   </ItemGroup>

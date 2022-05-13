@@ -5,12 +5,15 @@
 #include <algorithm>
 #include "ColorPool.h"
 #include "Contour.h"
+
 using namespace std;
 
-const string ORIGINAL  = "ORIGINAL_IMAGE_WINDOW";
-const string THRESHOLD = "THRESHOLD_IMAGE_WINDOW";
+const string ORIGINAL   = "ORIGINAL_IMAGE_WINDOW";
+const string THRESHOLD  = "THRESHOLD_IMAGE_WINDOW";
+const string SOBEL	    = "SOBEL_IMAGE_WINDOW";
+const string PITCHBLACK = "PITCH_BLACK_WINDOW";
 
-const string ORIG_IMAGE_PATH = "testImage6.png";
+const string ORIG_IMAGE_PATH = "testImage3.jpg";
 
 using OneChannelPixel = uchar;
 
@@ -26,25 +29,61 @@ void GetGrayImage(cv::Mat& origImg, cv::Mat& grayImg) {
 	cvtColor(origImg, grayImg, cv::ColorConversionCodes::COLOR_BGR2GRAY);
 }
 
-void GetThresholdedImage(cv::Mat& grayImg, cv::Mat& threshImg) {
-	threshold(grayImg, threshImg, 235, 255, cv::ThresholdTypes::THRESH_BINARY);
+void GetBlurredImage(cv::Mat& origImg, cv::Mat& blurredImg) {
+	cv::GaussianBlur(origImg, blurredImg, { 5, 5 }, 0);
 }
 
-void ReverseBlackWhiteThresholdedImage(cv::Mat& threshImg) {
-	threshImg.forEach<OneChannelPixel>([](OneChannelPixel& p, const int* position)->void {
-		if (p == 255) {
-			p = 0;
-		}
-		else {
-			p = 255;
-		}
-		});
+void GetSobeledImage(cv::Mat& origGrayImg, cv::Mat& sobeledImg) {
+	cv::Mat gradient_x, gradient_y;
+	cv::Sobel(origGrayImg, gradient_x, CV_32F, 1, 0);
+	cv::Sobel(origGrayImg, gradient_y, CV_32F, 0, 1);
+	
+	cv::Mat abs_gradient_x, abs_gradient_y;
+	cv::convertScaleAbs(gradient_x, abs_gradient_x);
+	cv::convertScaleAbs(gradient_y, abs_gradient_y);
+
+	cv::addWeighted(abs_gradient_x, 0.5, abs_gradient_y, 0.5, 0, sobeledImg);
 }
 
-void GetRelevantContours(cv::Mat& threshImg, vector<vector<cv::Point>>& contours) {
+void GetNoiseRemovedImage(cv::Mat& origImg, cv::Mat& noiseRemovedImg) {
+	auto mean = cv::mean(origImg);
+	cv::threshold(origImg, noiseRemovedImg, mean.val[0], 0, cv::THRESH_TOZERO);
+}
+
+void GetShadowsRemovedImage(cv::Mat& origImg, cv::Mat& shadowRemovedImg) {
+	cv::Mat blankMask = cv::Mat::zeros(origImg.size(), CV_8UC3);
+	cv::Mat original = origImg.clone();
+	cv::Mat hsv;
+
+	cv::cvtColor(origImg, hsv, cv::ColorConversionCodes::COLOR_BGR2HSV);
+	cv::Mat lower{ 41, 57, 78 };
+	cv::Mat upper{ 145, 255, 255};
+
+	cv::Mat mask;
+	cv::inRange(hsv, lower, upper, mask);
+
+
 	vector<cv::Vec4i> hierarchy;
-	findContours(threshImg, contours, hierarchy, cv::RetrievalModes::RETR_EXTERNAL, cv::ContourApproximationModes::CHAIN_APPROX_NONE);
+	vector<vector<cv::Point>> contours;
+	cv::findContours(mask, contours, hierarchy, cv::RETR_EXTERNAL, cv::ContourApproximationModes::CHAIN_APPROX_SIMPLE);
+	cv::drawContours(blankMask, contours, -1, cv::Scalar{0, 0, 255}, 2);
+	cv::namedWindow("mask", cv::WINDOW_NORMAL);
+	imshow("mask", blankMask);
+	/*	cnts = cnts[0] if len(cnts) == 2 else cnts[1]
+		cnts = sorted(cnts, key = cv::contourArea, reverse = True)
+		for c in cnts :
+	cv::drawContours(blank_mask, [c], -1, (255, 255, 255), -1)
+		break
 
+		result = cv::bitwise_and(original, blank_mask)
+		*/
+}
+
+void GetRelevantContours(cv::Mat& origImg, vector<vector<cv::Point>>& contours) {
+	vector<cv::Vec4i> hierarchy;
+	findContours(origImg, contours, hierarchy, cv::RetrievalModes::RETR_EXTERNAL, cv::ContourApproximationModes::CHAIN_APPROX_SIMPLE);
+
+	
 	const size_t RELEVANT_SIZE = 20;
 	contours.erase(
 		remove_if(
@@ -55,6 +94,19 @@ void GetRelevantContours(cv::Mat& threshImg, vector<vector<cv::Point>>& contours
 			}),
 		contours.end()
 	);
+
+	
+	const double RELEVANT_AREA = origImg.rows / 100.0 * origImg.cols * 1.1;
+	contours.erase(
+		remove_if(
+			contours.begin(),
+			contours.end(),
+			[=](vector<cv::Point>& i_vector) {
+				return cv::contourArea(i_vector) < RELEVANT_AREA;
+			}),
+		contours.end()
+	);
+	
 }
 
 void FillExtractedContours(vector<vector<cv::Point>>& contours, vector<Contour>& extracted_contours) {
@@ -71,17 +123,19 @@ int main(int argc, char** argv) {
 	if (origImg.empty()) return -1;
 
 
-	cv::Mat grayImg, threshImg;
-	GetGrayImage(origImg, grayImg);
-	GetThresholdedImage(grayImg, threshImg);
-	ReverseBlackWhiteThresholdedImage(threshImg);
+	cv::Mat blurredImg, blurredGrayImg, sobelImg, noiseRemovedImg, pitchBlackCanvas, cutOutContours, shadowsRemoved;
 
-	cv::namedWindow(THRESHOLD, cv::WINDOW_AUTOSIZE);
-	cv::imshow(THRESHOLD, threshImg);
+	GetBlurredImage(origImg, blurredImg);
+	GetGrayImage(blurredImg, blurredGrayImg);
+	GetSobeledImage(blurredGrayImg, sobelImg);
+	GetNoiseRemovedImage(sobelImg, noiseRemovedImg);
 
+	//cv::namedWindow(SOBEL, cv::WINDOW_NORMAL);
+	//imshow(SOBEL, sobelImg);
 
+	
 	vector<vector<cv::Point>> contours;
-	GetRelevantContours(threshImg, contours);
+	GetRelevantContours(noiseRemovedImg, contours);
 
 
 	sort(contours.begin(),
@@ -91,7 +145,69 @@ int main(int argc, char** argv) {
 	});
 
 
+	pitchBlackCanvas = cv::Mat::zeros(origImg.size(), CV_8UC3);
+	cv::drawContours(pitchBlackCanvas, contours, -1, { 255, 255, 255, 255 }, -1);
+	cv::bitwise_and(pitchBlackCanvas, origImg, cutOutContours);
 
+	cv::Mat output = cutOutContours.clone();
+
+	cv::namedWindow(PITCHBLACK, cv::WINDOW_NORMAL);
+	cv::createTrackbar("HMin", PITCHBLACK, 0, 179);
+	cv::createTrackbar("SMin", PITCHBLACK, 0, 255);
+	cv::createTrackbar("VMin", PITCHBLACK, 0, 255);
+	cv::createTrackbar("HMax", PITCHBLACK, 0, 179);
+	cv::createTrackbar("SMax", PITCHBLACK, 0, 255);
+	cv::createTrackbar("VMax", PITCHBLACK, 0, 255);
+
+	cv::setTrackbarPos("HMax", PITCHBLACK, 179);
+	cv::setTrackbarPos("SMax", PITCHBLACK, 255);
+	cv::setTrackbarPos("VMax", PITCHBLACK, 255);
+
+	int hMin = 0, sMin = 0, vMin = 0, hMax = 0, sMax = 0, vMax = 0,
+		phMin = 0, psMin = 0, pvMin = 0, phMax = 0, psMax = 0, pvMax = 0;
+
+	int waitTime = 33;
+
+	while (true) {
+
+		hMin = cv::getTrackbarPos("HMin", PITCHBLACK);
+		sMin = cv::getTrackbarPos("SMin", PITCHBLACK);
+		vMin = cv::getTrackbarPos("VMin", PITCHBLACK);
+
+		hMax = cv::getTrackbarPos("HMax", PITCHBLACK);
+		sMax = cv::getTrackbarPos("SMax", PITCHBLACK);
+		vMax = cv::getTrackbarPos("VMax", PITCHBLACK);
+
+		cv::Mat lower{ hMin, sMin, vMin };
+		cv::Mat upper{ hMax, sMax, vMax };
+
+		cv::Mat hsv, mask, maskThreeChannel;
+		cv::cvtColor(cutOutContours, hsv, cv::ColorConversionCodes::COLOR_BGR2HSV);
+		cv::inRange(hsv, lower, upper, mask);
+
+		cv::cvtColor(mask, maskThreeChannel, cv::ColorConversionCodes::COLOR_GRAY2BGR);
+		output = cutOutContours & maskThreeChannel;
+
+		if ((phMin != hMin) || (psMin != sMin) || (pvMin != vMin) || (phMax != hMax) || (psMax != sMax) || (pvMax != vMax)) {
+			printf("(hMin = %d , sMin = %d, vMin = %d), (hMax = %d , sMax = %d, vMax = %d)\n", hMin, sMin, vMin, hMax, sMax, vMax);
+				phMin = hMin;
+				psMin = sMin;
+				pvMin = vMin;
+				phMax = hMax;
+				psMax = sMax;
+				pvMax = vMax;
+		}
+
+		imshow(PITCHBLACK, output);
+		if (cv::waitKey(33) >= 0) break;
+	}
+
+	//imshow(PITCHBLACK, cutOutContours);
+
+	/*
+	GetShadowsRemovedImage(cutOutContours, shadowsRemoved);
+
+	
 	vector<Contour> extracted_contours;
 	FillExtractedContours(contours, extracted_contours);
 
@@ -120,10 +236,11 @@ int main(int argc, char** argv) {
 	}
 
 
-	cv::namedWindow(ORIGINAL, cv::WINDOW_AUTOSIZE);
+	cv::namedWindow(ORIGINAL, cv::WINDOW_NORMAL);
 	imshow(ORIGINAL, origImgCopy);
+	*/
 
-	cv::waitKey(0);
+	//cv::waitKey(0);
 	cv::destroyAllWindows();
 
 	return 0;
