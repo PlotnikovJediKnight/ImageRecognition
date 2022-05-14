@@ -151,11 +151,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Ciratefi.cpp" />
     <ClCompile Include="ColorPool.cpp" />
     <ClCompile Include="Contour.cpp" />
     <ClCompile Include="Main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Ciratefi.h" />
     <ClInclude Include="ColorPool.h" />
     <ClInclude Include="Contour.h" />
   </ItemGroup>

@@ -6,6 +6,8 @@
 #include "ColorPool.h"
 #include "Contour.h"
 
+#define HSV_GUI
+
 using namespace std;
 
 const string ORIGINAL   = "ORIGINAL_IMAGE_WINDOW";
@@ -56,8 +58,8 @@ void GetShadowsRemovedImage(cv::Mat& origImg, cv::Mat& shadowRemovedImg) {
 	cv::Mat hsv;
 
 	cv::cvtColor(origImg, hsv, cv::ColorConversionCodes::COLOR_BGR2HSV);
-	cv::Mat lower{ 41, 57, 78 };
-	cv::Mat upper{ 145, 255, 255};
+	cv::Mat lower{ 0, 67, 0 };
+	cv::Mat upper{ 179, 255, 255};
 
 	cv::Mat mask;
 	cv::inRange(hsv, lower, upper, mask);
@@ -66,20 +68,12 @@ void GetShadowsRemovedImage(cv::Mat& origImg, cv::Mat& shadowRemovedImg) {
 	vector<cv::Vec4i> hierarchy;
 	vector<vector<cv::Point>> contours;
 	cv::findContours(mask, contours, hierarchy, cv::RETR_EXTERNAL, cv::ContourApproximationModes::CHAIN_APPROX_SIMPLE);
-	cv::drawContours(blankMask, contours, -1, cv::Scalar{0, 0, 255}, 2);
-	cv::namedWindow("mask", cv::WINDOW_NORMAL);
-	imshow("mask", blankMask);
-	/*	cnts = cnts[0] if len(cnts) == 2 else cnts[1]
-		cnts = sorted(cnts, key = cv::contourArea, reverse = True)
-		for c in cnts :
-	cv::drawContours(blank_mask, [c], -1, (255, 255, 255), -1)
-		break
+	cv::drawContours(blankMask, contours, -1, cv::Scalar{255, 255, 255}, -1);
 
-		result = cv::bitwise_and(original, blank_mask)
-		*/
+	cv::bitwise_and(original, blankMask, shadowRemovedImg);
 }
 
-void GetRelevantContours(cv::Mat& origImg, vector<vector<cv::Point>>& contours) {
+void GetRelevantContours(cv::Mat& origImg, vector<vector<cv::Point>>& contours, bool areaTakenIntoAccount) {
 	vector<cv::Vec4i> hierarchy;
 	findContours(origImg, contours, hierarchy, cv::RetrievalModes::RETR_EXTERNAL, cv::ContourApproximationModes::CHAIN_APPROX_SIMPLE);
 
@@ -95,17 +89,18 @@ void GetRelevantContours(cv::Mat& origImg, vector<vector<cv::Point>>& contours) 
 		contours.end()
 	);
 
-	
-	const double RELEVANT_AREA = origImg.rows / 100.0 * origImg.cols * 1.1;
-	contours.erase(
-		remove_if(
-			contours.begin(),
-			contours.end(),
-			[=](vector<cv::Point>& i_vector) {
-				return cv::contourArea(i_vector) < RELEVANT_AREA;
-			}),
-		contours.end()
-	);
+	if (areaTakenIntoAccount) {
+		const double RELEVANT_AREA = origImg.rows / 100.0 * origImg.cols * 0.80;
+		contours.erase(
+			remove_if(
+				contours.begin(),
+				contours.end(),
+				[=](vector<cv::Point>& i_vector) {
+					return cv::contourArea(i_vector) < RELEVANT_AREA;
+				}),
+			contours.end()
+		);
+	}
 	
 }
 
@@ -117,38 +112,39 @@ void FillExtractedContours(vector<vector<cv::Point>>& contours, vector<Contour>&
 	}
 }
 
+/*
+int GetOuterCircleRadius(const cv::Rect& roi) {
+	double a = roi.width / 2.0;
+	double b = roi.height / 2.0;
+
+	return static_cast<int>(ceil(sqrt(a * a + b * b)));
+}
+*/
+
 int main(int argc, char** argv) {
 
 	cv::Mat origImg = cv::imread(ORIG_IMAGE_PATH, -1);
 	if (origImg.empty()) return -1;
 
 
-	cv::Mat blurredImg, blurredGrayImg, sobelImg, noiseRemovedImg, pitchBlackCanvas, cutOutContours, shadowsRemoved;
+	cv::Mat blurredImg, blurredGrayImg, sobelImg, noiseRemovedImg, 
+			pitchBlackCanvas, cutOutContours, shadowsRemoved, shadowsRemovedGray;
 
 	GetBlurredImage(origImg, blurredImg);
 	GetGrayImage(blurredImg, blurredGrayImg);
 	GetSobeledImage(blurredGrayImg, sobelImg);
 	GetNoiseRemovedImage(sobelImg, noiseRemovedImg);
 
-	//cv::namedWindow(SOBEL, cv::WINDOW_NORMAL);
-	//imshow(SOBEL, sobelImg);
-
 	
 	vector<vector<cv::Point>> contours;
-	GetRelevantContours(noiseRemovedImg, contours);
-
-
-	sort(contours.begin(),
-		 contours.end(), 
-		 [](vector<cv::Point>& lhs, vector<cv::Point>& rhs) { 
-			return lhs.size() > rhs.size(); 
-	});
-
+	GetRelevantContours(noiseRemovedImg, contours, true);
 
 	pitchBlackCanvas = cv::Mat::zeros(origImg.size(), CV_8UC3);
 	cv::drawContours(pitchBlackCanvas, contours, -1, { 255, 255, 255, 255 }, -1);
 	cv::bitwise_and(pitchBlackCanvas, origImg, cutOutContours);
 
+	#undef HSV_GUI
+	#ifdef HSV_GUI
 	cv::Mat output = cutOutContours.clone();
 
 	cv::namedWindow(PITCHBLACK, cv::WINDOW_NORMAL);
@@ -202,10 +198,20 @@ int main(int argc, char** argv) {
 		if (cv::waitKey(33) >= 0) break;
 	}
 
-	//imshow(PITCHBLACK, cutOutContours);
+	#endif
 
-	/*
+	
 	GetShadowsRemovedImage(cutOutContours, shadowsRemoved);
+	GetGrayImage(shadowsRemoved, shadowsRemovedGray);
+
+	contours.clear();
+	GetRelevantContours(shadowsRemovedGray, contours, false);
+
+	sort(contours.begin(),
+		contours.end(),
+		[](vector<cv::Point>& lhs, vector<cv::Point>& rhs) {
+			return lhs.size() < rhs.size();
+		});
 
 	
 	vector<Contour> extracted_contours;
@@ -226,21 +232,58 @@ int main(int argc, char** argv) {
 		}
 	}
 
+
+	//!!!!//
+	//!
+	vector<cv::Mat> isolatedGrayscaleItemsMats;
+	isolatedGrayscaleItemsMats.reserve(contours.size());
+	//! 
+	//!!!!//
+
 	cv::Mat origImgCopy = origImg.clone();
 	for (size_t i = 0; i < extracted_contours.size(); ++i) {
 		cv::Scalar color = extracted_contours[i].color;
 		int object_type_id = extracted_contours[i].object_type_id;
 
 		drawContours(origImgCopy, contours, i, color, 2);
+		{
+			cv::Rect roi = boundingRect(contours[i]);
+
+			float outerCircleRadius = 0.0;
+			cv::Point2f circleCenter{ 0.0, 0.0 };
+			cv::minEnclosingCircle(contours[i], circleCenter, outerCircleRadius);
+
+			const float a = roi.width  / 2.0;
+			const float b = roi.height / 2.0;
+
+			int squareSide = static_cast<int>(outerCircleRadius * 2) + 1;
+			int offsetRows = static_cast<int>(squareSide / 2.0 - b);
+			int offsetColumns = static_cast<int>(squareSide / 2.0 - a);
+
+			cv::Mat mask = cv::Mat::zeros(roi.size(), shadowsRemovedGray.type());
+			drawContours(mask, contours, i, cv::Scalar::all(255), -1, 8, cv::noArray(), -1,	-roi.tl());
+
+			cv::Mat semiFinal, final;
+			shadowsRemovedGray(roi).copyTo(semiFinal, mask);
+
+			cv::Mat temp(squareSide, squareSide, shadowsRemovedGray.type(), cv::Scalar::all(0));
+			cv::Mat roiMat(temp(cv::Rect(offsetColumns, offsetRows, roi.width, roi.height)));
+			semiFinal.copyTo(roiMat);
+			final = temp.clone();
+
+			isolatedGrayscaleItemsMats.push_back(final);
+		}
 		cv::putText(origImgCopy, to_string(object_type_id), extracted_contours[i].contour_points[0], cv::FONT_HERSHEY_SIMPLEX, 1.0, color);
 	}
+	
+	size_t i = 0;
+	for (auto& it : isolatedGrayscaleItemsMats) {
+		cv::namedWindow(to_string(i), cv::WINDOW_KEEPRATIO);
+		cv::imshow(to_string(i), it);
+		i++;
+	}
 
-
-	cv::namedWindow(ORIGINAL, cv::WINDOW_NORMAL);
-	imshow(ORIGINAL, origImgCopy);
-	*/
-
-	//cv::waitKey(0);
+	cv::waitKey(0);
 	cv::destroyAllWindows();
 
 	return 0;
