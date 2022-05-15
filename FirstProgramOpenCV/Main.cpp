@@ -1,10 +1,11 @@
-#include "opencv2/opencv.hpp"
+#include <opencv2/opencv.hpp>
 #include <iostream>
 #include <string>
 #include <vector>
 #include <algorithm>
 #include "ColorPool.h"
 #include "Contour.h"
+#include "Ciratefi.h"
 
 #define HSV_GUI
 
@@ -15,7 +16,7 @@ const string THRESHOLD  = "THRESHOLD_IMAGE_WINDOW";
 const string SOBEL	    = "SOBEL_IMAGE_WINDOW";
 const string PITCHBLACK = "PITCH_BLACK_WINDOW";
 
-const string ORIG_IMAGE_PATH = "testImage3.jpg";
+const string ORIG_IMAGE_PATH = "testImage7.jpg";
 
 using OneChannelPixel = uchar;
 
@@ -276,12 +277,18 @@ int main(int argc, char** argv) {
 		cv::putText(origImgCopy, to_string(object_type_id), extracted_contours[i].contour_points[0], cv::FONT_HERSHEY_SIMPLEX, 1.0, color);
 	}
 	
-	size_t i = 0;
+	/*size_t i = 0;
 	for (auto& it : isolatedGrayscaleItemsMats) {
 		cv::namedWindow(to_string(i), cv::WINDOW_KEEPRATIO);
 		cv::imshow(to_string(i), it);
 		i++;
-	}
+	}*/
+
+	Ciratefi ciratefi;
+	//cv::Mat test = cv::Mat::zeros({ 50, 50 }, CV_8UC1);
+	//cv::namedWindow("test", cv::WINDOW_AUTOSIZE);
+	//cv::imshow("test", shadowsRemovedGray);
+	ciratefi.DoCiratefi(isolatedGrayscaleItemsMats[0], shadowsRemovedGray);
 
 	cv::waitKey(0);
 	cv::destroyAllWindows();
