@@ -4,6 +4,12 @@ using namespace cv;
 
 const double Ciratefi::scales[Ciratefi::N_scales] = { 0.6, 0.7, 0.8, 0.9, 1.0, 1.1 };
 
+const int Ciratefi::angles[Ciratefi::M_angles] = { 0, 10, 20, 30, 40, 50, 60, 70, 80, 
+												   90, 100, 110, 120, 130, 140, 150, 
+												   160, 170, 180, 190, 200, 210, 220,
+												   230, 240, 250, 260, 270, 280, 290,
+												   300, 310, 320, 330, 340, 350};
+
 
 void Ciratefi::DoCiratefi(Mat& templateImageQ, Mat& searchImageA) {
 	GetScaledTemplateImagesQ(templateImageQ);
@@ -13,7 +19,8 @@ void Ciratefi::DoCiratefi(Mat& templateImageQ, Mat& searchImageA) {
 
 	CalculateRadiiArray(scaledTemplateImagesQ[N_scales - 1]);
 
-	Cifi(searchImageA, true);
+	vector<Point> firstGradeCandidatePixels;// = Cifi(searchImageA, false);
+	Rafi(firstGradeCandidatePixels, templateImageQ, searchImageA, true);
 }
 
 void Ciratefi::GetScaledTemplateImagesQ(Mat& templateImageQ) {
@@ -27,7 +34,7 @@ void Ciratefi::GetScaledTemplateImagesQ(Mat& templateImageQ) {
 
 void Ciratefi::CalculateRadiiArray(Mat& templateImageQ) {
 	int squareSideHalf = templateImageQ.cols / 2;
-	int radiiIncrementStep = squareSideHalf / (Ciratefi::L_radii - 1);
+	int radiiIncrementStep = round(static_cast<double>(squareSideHalf) / (Ciratefi::L_radii - 1));
 
 	radii[0] = 0; radii[1] = radiiIncrementStep;
 
@@ -49,7 +56,7 @@ vector<double> GetResizedTillNoNegativeElements(const vector<double>& cqi, vecto
 	return toReturn;
 }
 
-void Ciratefi::Cifi(Mat& searchImageA, bool drawFirstGradeCandidatePixels) {
+vector<Point> Ciratefi::Cifi(Mat& searchImageA, bool drawFirstGradeCandidatePixels) {
 
 	for (size_t i = 0; i < N_scales; ++i)
 		CalculateMultiscaleRotationInvariantFeaturesCQ(i, scaledTemplateImagesQ[i]);
@@ -57,20 +64,22 @@ void Ciratefi::Cifi(Mat& searchImageA, bool drawFirstGradeCandidatePixels) {
 	Calculate3DImageCA(searchImageA);
 
 	vector<Point> firstGradePoints;
+	probableScales.clear();
 	const double threshold1 = 0.95;
 	for (int y = 0; y < searchImageA.rows; ++y) {
 		for (int x = 0; x < searchImageA.cols; ++x) {
-			double maxValue = 0.0;
+			double maxValue = 0.0; int maxScaleIndex = 0;
 			for (int i = 0; i < N_scales; i++) {
 				vector<double> caxy = caImage[y][x];
 				vector<double> cqi = GetResizedTillNoNegativeElements(multiscaleRotationInvariantCQ[i], caxy);
 
 				double result = abs(GetCorrelation(cqi, caxy));
-				if (result > maxValue) maxValue = result;
+				if (result > maxValue) { maxValue = result; maxScaleIndex = i; }
 			}
 
 			if (maxValue >= threshold1) {
 				firstGradePoints.push_back({ x, y });
+				probableScales.push_back(scales[maxScaleIndex]);
 			}
 		}
 	}
@@ -84,6 +93,60 @@ void Ciratefi::Cifi(Mat& searchImageA, bool drawFirstGradeCandidatePixels) {
 			circle(searchImageA, it, 2, Scalar::all(255));
 		}
 	}
+
+	return firstGradePoints;
+}
+
+int Ciratefi::GetMaximumRadius(Mat& templateImageQ) {
+	assert(templateImageQ.rows == templateImageQ.cols);
+	int maxRadius = templateImageQ.rows / 2;
+
+	for (int i = Ciratefi::L_radii - 1; i >= 0; i--) {
+		if (radii[i] <= maxRadius) {
+			return radii[i];
+			break;
+		}
+	}
+
+	throw runtime_error("No suitable radius found!");
+	return maxRadius;
+}
+
+/*vector<Point>*/void Ciratefi::Rafi(vector<Point>& firstGradeCandidatePixels, Mat& templateImageQ, Mat& searchImageA, bool drawSecondGradeCandidatePixels) {
+	int maxRadius = GetMaximumRadius(templateImageQ);
+	Point centerPoint(templateImageQ.cols / 2, templateImageQ.rows / 2);
+	Point firstPoint (templateImageQ.cols / 2, templateImageQ.rows / 2 - maxRadius);
+	//line(templateImageQ, centerPoint, firstPoint, Scalar::all(255));
+
+
+	vector<Point> circlePoints;
+	ellipse2Poly(centerPoint, { maxRadius, maxRadius }, 0, 0, 360, 10, circlePoints);
+	circlePoints.resize(circlePoints.size() - 1);
+
+	int angleIndex = 0;
+	for (auto& currPoint : circlePoints) {
+		LineIterator it(templateImageQ, centerPoint, currPoint, 8);
+		size_t pixelAlongLineSum = 0;
+
+		for (int i = 0; i < it.count; i++) {
+			pixelAlongLineSum += uchar(*it);
+			it++;
+		}
+	}
+
+	/*for (int i = 1; i < M_angles; ++i) {
+		Point currPoint = firstPoint;
+		currPoint -= centerPoint;
+
+		int& x = currPoint.x; int& y = currPoint.y;
+		x = x * cos(angles[i]) - y * sin(angles[i]);
+		y = x * sin(angles[i]) + y * cos(angles[i]);
+
+		currPoint += centerPoint;
+		line(templateImageQ, centerPoint, currPoint, Scalar::all(255));
+	}*/
+
+	//return vector<Point>();
 }
 
 void Ciratefi::CalculateMultiscaleRotationInvariantFeaturesCQ(size_t scaleIndex, Mat& templateImageQ) {
@@ -112,7 +175,7 @@ void Ciratefi::CalculateMultiscaleRotationInvariantFeaturesCQ(size_t scaleIndex,
 	}
 }
 
-void Ciratefi::ProcessPortion(int y1, int y2, cv::Mat& searchImageA) {
+void Ciratefi::ProcessPortion(int y1, int y2, Mat& searchImageA) {
 	for (int y = y1; y <= y2; ++y) {
 		for (int x = 0; x < searchImageA.cols; ++x) {
 			caImage[y][x].reserve(L_radii);

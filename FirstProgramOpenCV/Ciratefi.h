@@ -19,14 +19,21 @@ private:
 	static const double scales[];
 
 	static const size_t L_radii = 13;
-
 	int radii[L_radii];
+
+	static const size_t M_angles = 36;
+	static const int angles[];
+
 	cv::Mat scaledTemplateImagesQ[N_scales];
 	std::vector<std::vector<double>> multiscaleRotationInvariantCQ;
 	std::vector<std::vector<std::vector<double>>> caImage;
+	std::vector<double> probableScales;
 
 	double CircularSampling(cv::Mat& sampledImage, int x, int y, int r);
-	void Cifi(cv::Mat& searchImageA, bool drawFirstGradeCandidatePixels);
+	
+	std::vector<cv::Point> Cifi(cv::Mat& searchImageA, bool drawFirstGradeCandidatePixels);
+	/*std::vector<cv::Point>*/void Rafi(std::vector<cv::Point>& firstGradeCandidatePixels, cv::Mat& templateImageQ, cv::Mat& searchImageA, bool drawSecondGradeCandidatePixels);
+
 	void GetScaledTemplateImagesQ(cv::Mat& templateImageQ);
 	void CalculateRadiiArray(cv::Mat& templateImageQ);
 	void CalculateMultiscaleRotationInvariantFeaturesCQ(size_t scaleIndex, cv::Mat& templateImageQ);
@@ -37,4 +44,6 @@ private:
 	double GetCorrelation(const std::vector<double>& x, const std::vector<double>& y);
 	double GetMean(const std::vector<double>& vect);
 	std::vector<double> GetStandardizedVector(const std::vector<double>& vect);
+
+	int GetMaximumRadius(cv::Mat& templateImageQ);
 };

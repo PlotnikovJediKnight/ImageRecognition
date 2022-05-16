@@ -289,15 +289,15 @@ int main(int argc, char** argv) {
 	//cv::namedWindow("test", cv::WINDOW_AUTOSIZE);
 	//cv::imshow("test", shadowsRemovedGray);
 
-	ciratefi.DoCiratefi(isolatedGrayscaleItemsMats[5], shadowsRemovedGray);
+	ciratefi.DoCiratefi(isolatedGrayscaleItemsMats[0], shadowsRemovedGray);
 
-	cv::namedWindow("test0", cv::WINDOW_AUTOSIZE);
+	cv::namedWindow("test0", cv::WINDOW_KEEPRATIO);
 	cv::imshow("test0", origImgCopy);
 
-	cv::namedWindow("test1", cv::WINDOW_AUTOSIZE);
-	cv::imshow("test1", isolatedGrayscaleItemsMats[5]);
+	cv::namedWindow("test1", cv::WINDOW_KEEPRATIO);
+	cv::imshow("test1", isolatedGrayscaleItemsMats[0]);
 
-	cv::namedWindow("test2", cv::WINDOW_AUTOSIZE);
+	cv::namedWindow("test2", cv::WINDOW_KEEPRATIO);
 	cv::imshow("test2", shadowsRemovedGray);
 
 	cv::waitKey(0);
