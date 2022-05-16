@@ -16,7 +16,7 @@ const string THRESHOLD  = "THRESHOLD_IMAGE_WINDOW";
 const string SOBEL	    = "SOBEL_IMAGE_WINDOW";
 const string PITCHBLACK = "PITCH_BLACK_WINDOW";
 
-const string ORIG_IMAGE_PATH = "testImage7.jpg";
+const string ORIG_IMAGE_PATH = "testImage10.jpg";
 
 using OneChannelPixel = uchar;
 
@@ -288,7 +288,17 @@ int main(int argc, char** argv) {
 	//cv::Mat test = cv::Mat::zeros({ 50, 50 }, CV_8UC1);
 	//cv::namedWindow("test", cv::WINDOW_AUTOSIZE);
 	//cv::imshow("test", shadowsRemovedGray);
-	ciratefi.DoCiratefi(isolatedGrayscaleItemsMats[0], shadowsRemovedGray);
+
+	ciratefi.DoCiratefi(isolatedGrayscaleItemsMats[5], shadowsRemovedGray);
+
+	cv::namedWindow("test0", cv::WINDOW_AUTOSIZE);
+	cv::imshow("test0", origImgCopy);
+
+	cv::namedWindow("test1", cv::WINDOW_AUTOSIZE);
+	cv::imshow("test1", isolatedGrayscaleItemsMats[5]);
+
+	cv::namedWindow("test2", cv::WINDOW_AUTOSIZE);
+	cv::imshow("test2", shadowsRemovedGray);
 
 	cv::waitKey(0);
 	cv::destroyAllWindows();

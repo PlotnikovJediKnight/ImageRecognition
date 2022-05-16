@@ -2,6 +2,7 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/imgproc.hpp>
+#include <numeric>
 #include <thread>
 #include <cassert>
 #include <vector>
@@ -21,7 +22,7 @@ private:
 
 	int radii[L_radii];
 	cv::Mat scaledTemplateImagesQ[N_scales];
-	double multiscaleRotationInvariantCQ[N_scales][L_radii];
+	std::vector<std::vector<double>> multiscaleRotationInvariantCQ;
 	std::vector<std::vector<std::vector<double>>> caImage;
 
 	double CircularSampling(cv::Mat& sampledImage, int x, int y, int r);
@@ -32,4 +33,8 @@ private:
 
 	void ProcessPortion(int x1, int x2, cv::Mat& searchImageA);
 	void Calculate3DImageCA(cv::Mat& searchImageA);
+
+	double GetCorrelation(const std::vector<double>& x, const std::vector<double>& y);
+	double GetMean(const std::vector<double>& vect);
+	std::vector<double> GetStandardizedVector(const std::vector<double>& vect);
 };

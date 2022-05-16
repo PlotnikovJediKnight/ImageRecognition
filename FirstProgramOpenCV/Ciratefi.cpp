@@ -4,8 +4,13 @@ using namespace cv;
 
 const double Ciratefi::scales[Ciratefi::N_scales] = { 0.6, 0.7, 0.8, 0.9, 1.0, 1.1 };
 
+
 void Ciratefi::DoCiratefi(Mat& templateImageQ, Mat& searchImageA) {
 	GetScaledTemplateImagesQ(templateImageQ);
+
+	multiscaleRotationInvariantCQ.resize(N_scales);
+	for (auto& it : multiscaleRotationInvariantCQ) it.resize(L_radii);
+
 	CalculateRadiiArray(scaledTemplateImagesQ[N_scales - 1]);
 
 	Cifi(searchImageA, true);
@@ -31,12 +36,54 @@ void Ciratefi::CalculateRadiiArray(Mat& templateImageQ) {
 	}
 }
 
+vector<double> GetResizedTillNoNegativeElements(const vector<double>& cqi, vector<double>& caxy) {
+	auto minusOneIgnore = find(cqi.begin(), cqi.end(), -1.0);
+	if (minusOneIgnore == cqi.end()) return cqi;
+
+	assert(minusOneIgnore >= cqi.begin());
+	size_t relevantElements = minusOneIgnore - cqi.begin();
+
+	vector<double> toReturn(cqi.begin(), cqi.end());
+	toReturn.resize(relevantElements);
+	caxy.resize(relevantElements);
+	return toReturn;
+}
+
 void Ciratefi::Cifi(Mat& searchImageA, bool drawFirstGradeCandidatePixels) {
 
 	for (size_t i = 0; i < N_scales; ++i)
 		CalculateMultiscaleRotationInvariantFeaturesCQ(i, scaledTemplateImagesQ[i]);
 
 	Calculate3DImageCA(searchImageA);
+
+	vector<Point> firstGradePoints;
+	const double threshold1 = 0.95;
+	for (int y = 0; y < searchImageA.rows; ++y) {
+		for (int x = 0; x < searchImageA.cols; ++x) {
+			double maxValue = 0.0;
+			for (int i = 0; i < N_scales; i++) {
+				vector<double> caxy = caImage[y][x];
+				vector<double> cqi = GetResizedTillNoNegativeElements(multiscaleRotationInvariantCQ[i], caxy);
+
+				double result = abs(GetCorrelation(cqi, caxy));
+				if (result > maxValue) maxValue = result;
+			}
+
+			if (maxValue >= threshold1) {
+				firstGradePoints.push_back({ x, y });
+			}
+		}
+	}
+
+	cout << "!!!!" << endl;
+	cout << firstGradePoints.size() << endl;
+	cout << "!!!!" << endl;
+
+	if (drawFirstGradeCandidatePixels) {
+		for (auto& it : firstGradePoints) {
+			circle(searchImageA, it, 2, Scalar::all(255));
+		}
+	}
 }
 
 void Ciratefi::CalculateMultiscaleRotationInvariantFeaturesCQ(size_t scaleIndex, Mat& templateImageQ) {
@@ -44,8 +91,8 @@ void Ciratefi::CalculateMultiscaleRotationInvariantFeaturesCQ(size_t scaleIndex,
 	int circleCenterCoord = templateImageQ.rows / 2;
 
 	fill(
-		multiscaleRotationInvariantCQ[scaleIndex],
-		static_cast<double*>(multiscaleRotationInvariantCQ[scaleIndex]) + L_radii,
+		multiscaleRotationInvariantCQ[scaleIndex].begin(),
+		multiscaleRotationInvariantCQ[scaleIndex].end(),
 		-1.0
 	);
 
@@ -65,14 +112,15 @@ void Ciratefi::CalculateMultiscaleRotationInvariantFeaturesCQ(size_t scaleIndex,
 	}
 }
 
-void Ciratefi::ProcessPortion(int x1, int x2, cv::Mat& searchImageA) {
-	for (int x = x1; x <= x2; ++x) {
-		for (int y = 0; y < searchImageA.cols; ++y) {
-			caImage[x][y].reserve(L_radii);
+void Ciratefi::ProcessPortion(int y1, int y2, cv::Mat& searchImageA) {
+	for (int y = y1; y <= y2; ++y) {
+		for (int x = 0; x < searchImageA.cols; ++x) {
+			caImage[y][x].reserve(L_radii);
 
 			for (int k = 0; k < L_radii; ++k) {
-				caImage[x][y].push_back(CircularSampling(searchImageA, x, y, radii[k]));
+				caImage[y][x].push_back(CircularSampling(searchImageA, x, y, radii[k]));
 			}
+
 		}
 	}
 }
@@ -84,7 +132,7 @@ void Ciratefi::Calculate3DImageCA(Mat& searchImageA){
 	}
 
 	vector<future<void>> futures;
-	unsigned int supportedThreads = std::thread::hardware_concurrency();
+	unsigned int supportedThreads = thread::hardware_concurrency();
 	assert(searchImageA.rows >= supportedThreads);
 
 	int rowsPerThread = searchImageA.rows / supportedThreads;
@@ -97,12 +145,12 @@ void Ciratefi::Calculate3DImageCA(Mat& searchImageA){
 		futures.push_back(
 			async(launch::async, &Ciratefi::ProcessPortion, ref(*this), currRowLeft, currRowLeft + rowsPerThread - 1, ref(searchImageA))
 		);
-		currRowLeft += fullDeploymentCount;
+		currRowLeft += rowsPerThread;
 	}
 
 	if (leftOver > 0) {
 		futures.push_back(
-			async(launch::async, &Ciratefi::ProcessPortion, ref(*this), currRowLeft + 1, currRowLeft + leftOver - 1, ref(searchImageA))
+			async(launch::async, &Ciratefi::ProcessPortion, ref(*this), currRowLeft, currRowLeft + leftOver - 1, ref(searchImageA))
 		);
 	}
 
@@ -110,6 +158,52 @@ void Ciratefi::Calculate3DImageCA(Mat& searchImageA){
 		it.wait();
 	}
 	cout << "Finished calculating CA" << endl;
+}
+
+double GetVectorMagnitude(const vector<double>& vect) {
+	double squared_sum = 0.0;
+	for (auto& it : vect) squared_sum += it * it;
+	return squared_sum / vect.size();;
+}
+
+double Ciratefi::GetCorrelation(const vector<double>& x, const vector<double>& y) {
+	const double tbeta = 0.1, tgamma = 1.0;
+
+	vector<double> standX = GetStandardizedVector(x);
+	vector<double> standY = GetStandardizedVector(y);
+
+	double meanY = GetMean(y);
+	double meanX = GetMean(x);
+
+	double squaredStandX = inner_product(standX.begin(), standX.end(), standX.begin(), 0.0);
+
+	const double beta = 
+		  inner_product(standX.begin(), standX.end(), standY.begin(), 0.0)
+		/ squaredStandX;
+
+	const double gamma = meanY - beta * meanX;
+
+	const double rXY = beta * squaredStandX / GetVectorMagnitude(standX) / GetVectorMagnitude(standY);
+
+	const double absBeta = abs(beta);
+	const double absGamma = abs(gamma);
+
+	if (absBeta <= tbeta || 1 / tbeta <= absBeta || absGamma > tgamma) return 0;
+	return rXY;
+}
+
+double Ciratefi::GetMean(const vector<double>& vect) {
+	return accumulate(vect.begin(), vect.end(), 0.0) / vect.size();
+}
+
+vector<double> operator-(const vector<double>& lhs, double rhs) {
+	vector<double> lhsCopy(lhs.begin(), lhs.end());
+	for (auto& it : lhsCopy) it -= rhs;
+	return lhsCopy;
+}
+
+vector<double> Ciratefi::GetStandardizedVector(const vector<double>& vect) {
+	return vect - GetMean(vect);
 }
 
 double Ciratefi::CircularSampling(Mat& sampledImage, int x, int y, int r) {
