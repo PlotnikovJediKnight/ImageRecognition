@@ -29,10 +29,15 @@ private:
 	std::vector<std::vector<std::vector<double>>> caImage;
 	std::vector<double> probableScales;
 
+	std::vector<double> radialSamplesRQ;
+	std::vector<std::vector<double>> raImage;
+	std::vector<int> probableAngles;
+
 	double CircularSampling(cv::Mat& sampledImage, int x, int y, int r);
+	std::vector<double> RadialSampling(cv::Mat& sampledImage, int x, int y, int r);
 	
 	std::vector<cv::Point> Cifi(cv::Mat& searchImageA, bool drawFirstGradeCandidatePixels);
-	/*std::vector<cv::Point>*/void Rafi(std::vector<cv::Point>& firstGradeCandidatePixels, cv::Mat& templateImageQ, cv::Mat& searchImageA, bool drawSecondGradeCandidatePixels);
+	std::vector<cv::Point> Rafi(std::vector<cv::Point>& firstGradeCandidatePixels, cv::Mat& templateImageQ, cv::Mat& searchImageA, bool drawSecondGradeCandidatePixels);
 
 	void GetScaledTemplateImagesQ(cv::Mat& templateImageQ);
 	void CalculateRadiiArray(cv::Mat& templateImageQ);

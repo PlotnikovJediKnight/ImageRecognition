@@ -19,7 +19,7 @@ void Ciratefi::DoCiratefi(Mat& templateImageQ, Mat& searchImageA) {
 
 	CalculateRadiiArray(scaledTemplateImagesQ[N_scales - 1]);
 
-	vector<Point> firstGradeCandidatePixels;// = Cifi(searchImageA, false);
+	vector<Point> firstGradeCandidatePixels = Cifi(searchImageA, false);
 	Rafi(firstGradeCandidatePixels, templateImageQ, searchImageA, true);
 }
 
@@ -34,7 +34,7 @@ void Ciratefi::GetScaledTemplateImagesQ(Mat& templateImageQ) {
 
 void Ciratefi::CalculateRadiiArray(Mat& templateImageQ) {
 	int squareSideHalf = templateImageQ.cols / 2;
-	int radiiIncrementStep = round(static_cast<double>(squareSideHalf) / (Ciratefi::L_radii - 1));
+	int radiiIncrementStep = round(static_cast<double>(squareSideHalf) / (Ciratefi::L_radii - 1)) - 1;
 
 	radii[0] = 0; radii[1] = radiiIncrementStep;
 
@@ -99,54 +99,68 @@ vector<Point> Ciratefi::Cifi(Mat& searchImageA, bool drawFirstGradeCandidatePixe
 
 int Ciratefi::GetMaximumRadius(Mat& templateImageQ) {
 	assert(templateImageQ.rows == templateImageQ.cols);
-	int maxRadius = templateImageQ.rows / 2;
-
-	for (int i = Ciratefi::L_radii - 1; i >= 0; i--) {
-		if (radii[i] <= maxRadius) {
-			return radii[i];
-			break;
-		}
-	}
-
-	throw runtime_error("No suitable radius found!");
+	int maxRadius = templateImageQ.rows / 2 - 1;
 	return maxRadius;
 }
 
-/*vector<Point>*/void Ciratefi::Rafi(vector<Point>& firstGradeCandidatePixels, Mat& templateImageQ, Mat& searchImageA, bool drawSecondGradeCandidatePixels) {
+vector<double> GetShiftedVector(vector<double> vect, int step) {
+	if (step == 0) return vect;
+	step %= vect.size();
+
+	rotate(vect.begin(), vect.begin() + step, vect.end());
+	return vect;
+}
+
+vector<Point> Ciratefi::Rafi(vector<Point>& firstGradeCandidatePixels, Mat& templateImageQ, Mat& searchImageA, bool drawSecondGradeCandidatePixels) {
 	int maxRadius = GetMaximumRadius(templateImageQ);
+
 	Point centerPoint(templateImageQ.cols / 2, templateImageQ.rows / 2);
-	Point firstPoint (templateImageQ.cols / 2, templateImageQ.rows / 2 - maxRadius);
-	//line(templateImageQ, centerPoint, firstPoint, Scalar::all(255));
+	radialSamplesRQ = RadialSampling(templateImageQ, centerPoint.x, centerPoint.y, maxRadius);
 
-
-	vector<Point> circlePoints;
-	ellipse2Poly(centerPoint, { maxRadius, maxRadius }, 0, 0, 360, 10, circlePoints);
-	circlePoints.resize(circlePoints.size() - 1);
-
-	int angleIndex = 0;
-	for (auto& currPoint : circlePoints) {
-		LineIterator it(templateImageQ, centerPoint, currPoint, 8);
-		size_t pixelAlongLineSum = 0;
-
-		for (int i = 0; i < it.count; i++) {
-			pixelAlongLineSum += uchar(*it);
-			it++;
+	{
+		int i = 0;
+		raImage.clear(); raImage.resize(firstGradeCandidatePixels.size());
+		for (auto& pixel : firstGradeCandidatePixels) {
+			raImage[i] = RadialSampling(searchImageA, pixel.x, pixel.y, probableScales[i] * maxRadius);
+			i++;
 		}
 	}
 
-	/*for (int i = 1; i < M_angles; ++i) {
-		Point currPoint = firstPoint;
-		currPoint -= centerPoint;
+	const double threshold2 = 0.9;
+	vector<Point> secondGradePoints;
+	probableAngles.clear();
 
-		int& x = currPoint.x; int& y = currPoint.y;
-		x = x * cos(angles[i]) - y * sin(angles[i]);
-		y = x * sin(angles[i]) + y * cos(angles[i]);
+	int pixelIndex = 0;
+	for (auto& pixel : firstGradeCandidatePixels) {
+		double maxValue = 0.0; int maxAngleIndex = 0;
 
-		currPoint += centerPoint;
-		line(templateImageQ, centerPoint, currPoint, Scalar::all(255));
-	}*/
+		for (int j = 0; j < M_angles; j++) {
+			vector<double>& raxy = raImage[pixelIndex];
+			vector<double> shiftedrq = GetShiftedVector(radialSamplesRQ, j);
+			
+			double result = abs(GetCorrelation(raxy, shiftedrq));
+			if (result > maxValue) { maxValue = result; maxAngleIndex = j; }
+		}
 
-	//return vector<Point>();
+		if (maxValue >= threshold2) {
+			secondGradePoints.push_back({ pixel });
+			probableScales.push_back(angles[maxAngleIndex]);
+		}
+
+		pixelIndex++;
+	}
+
+	cout << "~!!!!~" << endl;
+	cout << secondGradePoints.size() << endl;
+	cout << "~!!!!~" << endl;
+
+	if (drawSecondGradeCandidatePixels) {
+		for (auto& it : secondGradePoints) {
+			circle(searchImageA, it, 2, Scalar::all(255));
+		}
+	}
+
+	return secondGradePoints;
 }
 
 void Ciratefi::CalculateMultiscaleRotationInvariantFeaturesCQ(size_t scaleIndex, Mat& templateImageQ) {
@@ -288,6 +302,31 @@ double Ciratefi::CircularSampling(Mat& sampledImage, int x, int y, int r) {
 
 	double averageGrayscale = static_cast<double>(totalGrayscaleSum) / pointsOnCircle.size();
 	return averageGrayscale;
+}
+
+vector<double>  Ciratefi::RadialSampling(cv::Mat& sampledImage, int x, int y, int r){
+	Point centerPoint(x, y);
+	Point firstPoint(x, y - r);
+	vector<Point> circlePoints;
+	ellipse2Poly(centerPoint, { r, r }, 0, 0, 360, 10, circlePoints);
+	circlePoints.resize(circlePoints.size() - 1);
+
+	int angleIndex = 0;
+	vector<double> radialSamples; radialSamples.resize(M_angles);
+
+	for (auto& currPoint : circlePoints) {
+		LineIterator it(sampledImage, centerPoint, currPoint, 8);
+		size_t pixelAlongLineSum = 0;
+
+		for (int i = 0; i < it.count; i++) {
+			pixelAlongLineSum += uchar(*it);
+			it++;
+		}
+
+		radialSamples[angleIndex++] = pixelAlongLineSum / static_cast<double>(it.count);
+	}
+
+	return radialSamples;
 }
 
 

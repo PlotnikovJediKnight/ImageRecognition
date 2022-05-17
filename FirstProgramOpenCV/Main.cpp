@@ -16,7 +16,7 @@ const string THRESHOLD  = "THRESHOLD_IMAGE_WINDOW";
 const string SOBEL	    = "SOBEL_IMAGE_WINDOW";
 const string PITCHBLACK = "PITCH_BLACK_WINDOW";
 
-const string ORIG_IMAGE_PATH = "testImage10.jpg";
+const string ORIG_IMAGE_PATH = "image0.jpg";
 
 using OneChannelPixel = uchar;
 
