@@ -12,6 +12,7 @@ public:
 	ColorPool(const ColorPool&) = delete;
 	ColorPool& operator=(const ColorPool&) = delete;
 	ContourColor GetNextColor();
+	ContourColor GetColorById(size_t id);
 
 private:
 	ColorPool();

@@ -5,26 +5,25 @@
 #include <algorithm>
 #include "ColorPool.h"
 #include "Contour.h"
-#include "Ciratefi.h"
-
-#define HSV_GUI
 
 using namespace std;
 
 const string ORIGINAL   = "ORIGINAL_IMAGE_WINDOW";
 const string THRESHOLD  = "THRESHOLD_IMAGE_WINDOW";
-const string SOBEL	    = "SOBEL_IMAGE_WINDOW";
 const string PITCHBLACK = "PITCH_BLACK_WINDOW";
 
-const string ORIG_IMAGE_PATH = "image0.jpg";
+const string ORIG_IMAGE_PATH = "try3_12.jpg";
 
 using OneChannelPixel = uchar;
 
 const double MATCH_SHAPES_EPSILON_I3 = 0.1;
 
-int GetNextObjectType() {
+int GetNextObjectType(bool resetCounter) {
 	static int object_type = 0;
-	if (object_type == ColorPool::MAX_COLORS) throw runtime_error("Out of object ids!");
+	if (resetCounter) {
+		object_type = -1;
+	}
+	if (object_type == ColorPool::MAX_COLORS) { throw runtime_error("Out of object ids!"); }
 	return object_type++;
 }
 
@@ -32,20 +31,12 @@ void GetGrayImage(cv::Mat& origImg, cv::Mat& grayImg) {
 	cvtColor(origImg, grayImg, cv::ColorConversionCodes::COLOR_BGR2GRAY);
 }
 
-void GetBlurredImage(cv::Mat& origImg, cv::Mat& blurredImg) {
-	cv::GaussianBlur(origImg, blurredImg, { 5, 5 }, 0);
+void GetThresholdImage(cv::Mat& origImg, cv::Mat& threshImg) {
+	cv::adaptiveThreshold(origImg, threshImg, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::ThresholdTypes::THRESH_BINARY_INV, 11, 2);
 }
 
-void GetSobeledImage(cv::Mat& origGrayImg, cv::Mat& sobeledImg) {
-	cv::Mat gradient_x, gradient_y;
-	cv::Sobel(origGrayImg, gradient_x, CV_32F, 1, 0);
-	cv::Sobel(origGrayImg, gradient_y, CV_32F, 0, 1);
-	
-	cv::Mat abs_gradient_x, abs_gradient_y;
-	cv::convertScaleAbs(gradient_x, abs_gradient_x);
-	cv::convertScaleAbs(gradient_y, abs_gradient_y);
-
-	cv::addWeighted(abs_gradient_x, 0.5, abs_gradient_y, 0.5, 0, sobeledImg);
+void GetCannyImage(cv::Mat& origImg, cv::Mat& cannyImg) {
+	cv::Canny(origImg, cannyImg, 1, 120, 3, true);
 }
 
 void GetNoiseRemovedImage(cv::Mat& origImg, cv::Mat& noiseRemovedImg) {
@@ -53,30 +44,9 @@ void GetNoiseRemovedImage(cv::Mat& origImg, cv::Mat& noiseRemovedImg) {
 	cv::threshold(origImg, noiseRemovedImg, mean.val[0], 0, cv::THRESH_TOZERO);
 }
 
-void GetShadowsRemovedImage(cv::Mat& origImg, cv::Mat& shadowRemovedImg) {
-	cv::Mat blankMask = cv::Mat::zeros(origImg.size(), CV_8UC3);
-	cv::Mat original = origImg.clone();
-	cv::Mat hsv;
-
-	cv::cvtColor(origImg, hsv, cv::ColorConversionCodes::COLOR_BGR2HSV);
-	cv::Mat lower{ 0, 67, 0 };
-	cv::Mat upper{ 179, 255, 255};
-
-	cv::Mat mask;
-	cv::inRange(hsv, lower, upper, mask);
-
-
-	vector<cv::Vec4i> hierarchy;
-	vector<vector<cv::Point>> contours;
-	cv::findContours(mask, contours, hierarchy, cv::RETR_EXTERNAL, cv::ContourApproximationModes::CHAIN_APPROX_SIMPLE);
-	cv::drawContours(blankMask, contours, -1, cv::Scalar{255, 255, 255}, -1);
-
-	cv::bitwise_and(original, blankMask, shadowRemovedImg);
-}
-
 void GetRelevantContours(cv::Mat& origImg, vector<vector<cv::Point>>& contours, bool areaTakenIntoAccount) {
 	vector<cv::Vec4i> hierarchy;
-	findContours(origImg, contours, hierarchy, cv::RetrievalModes::RETR_EXTERNAL, cv::ContourApproximationModes::CHAIN_APPROX_SIMPLE);
+	findContours(origImg, contours, hierarchy, cv::RetrievalModes::RETR_EXTERNAL, cv::ContourApproximationModes::CHAIN_APPROX_TC89_L1);
 
 	
 	const size_t RELEVANT_SIZE = 20;
@@ -91,7 +61,7 @@ void GetRelevantContours(cv::Mat& origImg, vector<vector<cv::Point>>& contours, 
 	);
 
 	if (areaTakenIntoAccount) {
-		const double RELEVANT_AREA = origImg.rows / 100.0 * origImg.cols * 0.80;
+		const double RELEVANT_AREA = origImg.rows / 100.0 * origImg.cols * 0.10;
 		contours.erase(
 			remove_if(
 				contours.begin(),
@@ -113,14 +83,139 @@ void FillExtractedContours(vector<vector<cv::Point>>& contours, vector<Contour>&
 	}
 }
 
-/*
-int GetOuterCircleRadius(const cv::Rect& roi) {
-	double a = roi.width / 2.0;
-	double b = roi.height / 2.0;
-
-	return static_cast<int>(ceil(sqrt(a * a + b * b)));
+void GetBlurredImage(cv::Mat& origImg, cv::Mat& blurredImg) {
+	cv::GaussianBlur(origImg, blurredImg, { 5, 5 }, 0);
 }
-*/
+
+void GetSobeledImage(cv::Mat& origGrayImg, cv::Mat& sobeledImg) {
+	cv::Mat gradient_x, gradient_y;
+	cv::Sobel(origGrayImg, gradient_x, CV_32F, 1, 0);
+	cv::Sobel(origGrayImg, gradient_y, CV_32F, 0, 1);
+
+	cv::Mat abs_gradient_x, abs_gradient_y;
+	cv::convertScaleAbs(gradient_x, abs_gradient_x);
+	cv::convertScaleAbs(gradient_y, abs_gradient_y);
+
+	cv::addWeighted(abs_gradient_x, 0.5, abs_gradient_y, 0.5, 0, sobeledImg);
+}
+
+cv::Rect GetCropBoundingRect(cv::Mat& rotatedImage) {
+	size_t rows = rotatedImage.rows;
+	size_t cols = rotatedImage.cols;
+
+	const cv::Vec3b blackPixel( 0, 0, 0 );
+
+	size_t y_min = rows - 1;
+	for (size_t x = 0; x < cols; ++x) {
+		for (size_t y = 0; y < rows; ++y) {
+			if (rotatedImage.at<cv::Vec3b>(y, x) != blackPixel) {
+				if (y < y_min) {
+					y_min = y;
+				}
+				break;
+			}
+		}
+	}
+
+	size_t y_max = 0;
+	for (size_t x = 0; x < cols; ++x) {
+		for (size_t y = rows - 1; y > 0; --y) {
+			if (rotatedImage.at<cv::Vec3b>(y, x) != blackPixel) {
+				if (y > y_max) {
+					y_max = y;
+				}
+				break;
+			}
+		}
+	}
+
+	size_t x_min = cols - 1;
+	for (size_t y = 0; y < rows; ++y) {
+		for (size_t x = 0; x < cols; ++x) {
+			if (rotatedImage.at<cv::Vec3b>(y, x) != blackPixel) {
+				if (x < x_min) {
+					x_min = x;
+				}
+				break;
+			}
+		}
+	}
+
+	size_t x_max = 0;
+	for (size_t y = 0; y < rows; ++y) {
+		for (size_t x = cols - 1; x > 0; --x) {
+			if (rotatedImage.at<cv::Vec3b>(y, x) != blackPixel) {
+				if (x > x_max) {
+					x_max = x;
+				}
+				break;
+			}
+		}
+	}
+
+	cv::Rect toReturn; toReturn.x = x_min; toReturn.y = y_min; toReturn.width = x_max - x_min; toReturn.height = y_max - y_min;
+	return toReturn;
+}
+
+
+
+void DoTemplateMatching(cv::Mat& templatePatch, vector<Contour>& extractedContours, vector<cv::Mat> itemsOnPitchBlack, size_t patchIndex) {
+	constexpr double MATCH_PASSED_VALUE = 0.65;
+	constexpr size_t ANGLE_SAMPLES = 30;
+	constexpr double angle = 360.0 / ANGLE_SAMPLES;
+
+	vector<cv::Mat> templateAngleSamples; templateAngleSamples.reserve(ANGLE_SAMPLES);
+	cv::Point2f center(templatePatch.cols * 0.5, templatePatch.rows * 0.5);
+
+	for (size_t i = 0; i < ANGLE_SAMPLES + 1; i++) {
+		double rotationAngle = angle * i;
+		{
+			cv::Mat rot_mat = cv::getRotationMatrix2D(center, rotationAngle, 1.0);
+			cv::Rect2f bbox = cv::RotatedRect(cv::Point2f(), templatePatch.size(), rotationAngle).boundingRect2f();
+
+			rot_mat.at<double>(0, 2) += bbox.width / 2.0 - templatePatch.cols / 2.0;
+			rot_mat.at<double>(1, 2) += bbox.height / 2.0 - templatePatch.rows / 2.0;
+
+			cv::Mat dst;
+			cv::warpAffine(templatePatch, dst, rot_mat, bbox.size());
+			
+			cv::Mat final;
+			cv::Rect roi = GetCropBoundingRect(dst);
+			dst(roi).copyTo(final);
+
+			templateAngleSamples.push_back(final);
+		}
+	}
+
+	int current_group_id = GetNextObjectType(false);
+	extractedContours[patchIndex].object_type_id = current_group_id;
+
+	cout << patchIndex << ": ";
+
+	for (auto& templateSample : templateAngleSamples) {
+		for (size_t i = 0; i < itemsOnPitchBlack.size(); ++i) {
+
+			if (i != patchIndex && extractedContours[i].object_type_id == -1) {
+
+				cv::Mat result;
+				cv::matchTemplate(itemsOnPitchBlack[i], templateSample, result, cv::TM_CCOEFF_NORMED);
+
+				double maxValue = -1.0;
+				cv::Point maxPoint;
+				cv::minMaxLoc(result, NULL, &maxValue, NULL, &maxPoint);
+
+				if (maxValue >= MATCH_PASSED_VALUE) {
+					extractedContours[i].object_type_id = current_group_id;
+					cout << i << " (" << maxValue << ") ";
+				}
+
+			}
+
+		}
+	}
+
+	cout << endl;
+}
 
 int main(int argc, char** argv) {
 
@@ -128,14 +223,13 @@ int main(int argc, char** argv) {
 	if (origImg.empty()) return -1;
 
 
-	cv::Mat blurredImg, blurredGrayImg, sobelImg, noiseRemovedImg, 
-			pitchBlackCanvas, cutOutContours, shadowsRemoved, shadowsRemovedGray;
+	cv::Mat blurredImg, noiseRemovedImg, sobelImg, 
+			blurredGrayImg, pitchBlackCanvas, cutOutContours;
 
 	GetBlurredImage(origImg, blurredImg);
 	GetGrayImage(blurredImg, blurredGrayImg);
 	GetSobeledImage(blurredGrayImg, sobelImg);
 	GetNoiseRemovedImage(sobelImg, noiseRemovedImg);
-
 	
 	vector<vector<cv::Point>> contours;
 	GetRelevantContours(noiseRemovedImg, contours, true);
@@ -144,164 +238,69 @@ int main(int argc, char** argv) {
 	cv::drawContours(pitchBlackCanvas, contours, -1, { 255, 255, 255, 255 }, -1);
 	cv::bitwise_and(pitchBlackCanvas, origImg, cutOutContours);
 
-	#undef HSV_GUI
-	#ifdef HSV_GUI
-	cv::Mat output = cutOutContours.clone();
 
-	cv::namedWindow(PITCHBLACK, cv::WINDOW_NORMAL);
-	cv::createTrackbar("HMin", PITCHBLACK, 0, 179);
-	cv::createTrackbar("SMin", PITCHBLACK, 0, 255);
-	cv::createTrackbar("VMin", PITCHBLACK, 0, 255);
-	cv::createTrackbar("HMax", PITCHBLACK, 0, 179);
-	cv::createTrackbar("SMax", PITCHBLACK, 0, 255);
-	cv::createTrackbar("VMax", PITCHBLACK, 0, 255);
-
-	cv::setTrackbarPos("HMax", PITCHBLACK, 179);
-	cv::setTrackbarPos("SMax", PITCHBLACK, 255);
-	cv::setTrackbarPos("VMax", PITCHBLACK, 255);
-
-	int hMin = 0, sMin = 0, vMin = 0, hMax = 0, sMax = 0, vMax = 0,
-		phMin = 0, psMin = 0, pvMin = 0, phMax = 0, psMax = 0, pvMax = 0;
-
-	int waitTime = 33;
-
-	while (true) {
-
-		hMin = cv::getTrackbarPos("HMin", PITCHBLACK);
-		sMin = cv::getTrackbarPos("SMin", PITCHBLACK);
-		vMin = cv::getTrackbarPos("VMin", PITCHBLACK);
-
-		hMax = cv::getTrackbarPos("HMax", PITCHBLACK);
-		sMax = cv::getTrackbarPos("SMax", PITCHBLACK);
-		vMax = cv::getTrackbarPos("VMax", PITCHBLACK);
-
-		cv::Mat lower{ hMin, sMin, vMin };
-		cv::Mat upper{ hMax, sMax, vMax };
-
-		cv::Mat hsv, mask, maskThreeChannel;
-		cv::cvtColor(cutOutContours, hsv, cv::ColorConversionCodes::COLOR_BGR2HSV);
-		cv::inRange(hsv, lower, upper, mask);
-
-		cv::cvtColor(mask, maskThreeChannel, cv::ColorConversionCodes::COLOR_GRAY2BGR);
-		output = cutOutContours & maskThreeChannel;
-
-		if ((phMin != hMin) || (psMin != sMin) || (pvMin != vMin) || (phMax != hMax) || (psMax != sMax) || (pvMax != vMax)) {
-			printf("(hMin = %d , sMin = %d, vMin = %d), (hMax = %d , sMax = %d, vMax = %d)\n", hMin, sMin, vMin, hMax, sMax, vMax);
-				phMin = hMin;
-				psMin = sMin;
-				pvMin = vMin;
-				phMax = hMax;
-				psMax = sMax;
-				pvMax = vMax;
-		}
-
-		imshow(PITCHBLACK, output);
-		if (cv::waitKey(33) >= 0) break;
-	}
-
-	#endif
-
-	
-	GetShadowsRemovedImage(cutOutContours, shadowsRemoved);
-	GetGrayImage(shadowsRemoved, shadowsRemovedGray);
-
-	contours.clear();
-	GetRelevantContours(shadowsRemovedGray, contours, false);
-
-	sort(contours.begin(),
-		contours.end(),
-		[](vector<cv::Point>& lhs, vector<cv::Point>& rhs) {
-			return lhs.size() < rhs.size();
-		});
-
-	
 	vector<Contour> extracted_contours;
 	FillExtractedContours(contours, extracted_contours);
 
-	for (auto& contour1 : extracted_contours) {
-		if (contour1.object_type_id == -1) {
-			int current_object_type_id = GetNextObjectType();
-			cv::Scalar current_object_type_color = ColorPool::Instance().GetNextColor();
-			for (auto& contour2 : extracted_contours) {
-				if (contour2.object_type_id == -1) {
-					if (cv::matchShapes(contour1.contour_points, contour2.contour_points, cv::CONTOURS_MATCH_I3, 0) < MATCH_SHAPES_EPSILON_I3) {
-						contour2.color = current_object_type_color;
-						contour2.object_type_id = current_object_type_id;
-					}
-				}
-			}
-		}
-	}
+	vector<cv::Mat> isolatedItemsMats;
+	vector<cv::Mat> itemsOnPitchBlack;
 
+	isolatedItemsMats.reserve(contours.size());
+	itemsOnPitchBlack.reserve(contours.size());
 
-	//!!!!//
-	//!
-	vector<cv::Mat> isolatedGrayscaleItemsMats;
-	isolatedGrayscaleItemsMats.reserve(contours.size());
-	//! 
-	//!!!!//
 
 	cv::Mat origImgCopy = origImg.clone();
 	for (size_t i = 0; i < extracted_contours.size(); ++i) {
-		cv::Scalar color = extracted_contours[i].color;
-		int object_type_id = extracted_contours[i].object_type_id;
+		cv::Scalar color = ColorPool::Instance().GetNextColor();
+		int object_type_id = GetNextObjectType(false);
 
-		drawContours(origImgCopy, contours, i, color, 2);
+		cv::Mat cutOutItem;
+		cv::Mat pitchBlackCanvas = cv::Mat::zeros(origImg.size(), CV_8UC3);
+		cv::drawContours(pitchBlackCanvas, contours, i, { 255, 255, 255, 255 }, -1);
+		cv::bitwise_and(pitchBlackCanvas, origImg, cutOutItem);
+
 		{
+			cv::Mat final;
 			cv::Rect roi = boundingRect(contours[i]);
+			cutOutItem(roi).copyTo(final);
 
-			float outerCircleRadius = 0.0;
-			cv::Point2f circleCenter{ 0.0, 0.0 };
-			cv::minEnclosingCircle(contours[i], circleCenter, outerCircleRadius);
-
-			const float a = roi.width  / 2.0;
-			const float b = roi.height / 2.0;
-
-			int squareSide = static_cast<int>(outerCircleRadius * 2) + 1;
-			int offsetRows = static_cast<int>(squareSide / 2.0 - b);
-			int offsetColumns = static_cast<int>(squareSide / 2.0 - a);
-
-			cv::Mat mask = cv::Mat::zeros(roi.size(), shadowsRemovedGray.type());
-			drawContours(mask, contours, i, cv::Scalar::all(255), -1, 8, cv::noArray(), -1,	-roi.tl());
-
-			cv::Mat semiFinal, final;
-			shadowsRemovedGray(roi).copyTo(semiFinal, mask);
-
-			cv::Mat temp(squareSide, squareSide, shadowsRemovedGray.type(), cv::Scalar::all(0));
-			cv::Mat roiMat(temp(cv::Rect(offsetColumns, offsetRows, roi.width, roi.height)));
-			semiFinal.copyTo(roiMat);
-			final = temp.clone();
-
-			isolatedGrayscaleItemsMats.push_back(final);
+			isolatedItemsMats.push_back(final);
+			itemsOnPitchBlack.push_back(cutOutItem);
 		}
-		cv::putText(origImgCopy, to_string(object_type_id), extracted_contours[i].contour_points[0], cv::FONT_HERSHEY_SIMPLEX, 1.0, color);
+
+		drawContours(origImgCopy, contours, i, color, 3);
+		cv::putText(origImgCopy, to_string(object_type_id), extracted_contours[i].contour_points[0], cv::FONT_HERSHEY_COMPLEX, 5.0, color, 10);
 	}
 	
-	/*size_t i = 0;
-	for (auto& it : isolatedGrayscaleItemsMats) {
-		cv::namedWindow(to_string(i), cv::WINDOW_KEEPRATIO);
-		cv::imshow(to_string(i), it);
-		i++;
-	}*/
-
-	Ciratefi ciratefi;
-	//cv::Mat test = cv::Mat::zeros({ 50, 50 }, CV_8UC1);
-	//cv::namedWindow("test", cv::WINDOW_AUTOSIZE);
-	//cv::imshow("test", shadowsRemovedGray);
-
-	ciratefi.DoCiratefi(isolatedGrayscaleItemsMats[0], shadowsRemovedGray);
-
-	cv::namedWindow("test0", cv::WINDOW_KEEPRATIO);
-	cv::imshow("test0", origImgCopy);
-
 	cv::namedWindow("test1", cv::WINDOW_KEEPRATIO);
-	cv::imshow("test1", isolatedGrayscaleItemsMats[0]);
+	cv::imshow("test1", cutOutContours);
 
 	cv::namedWindow("test2", cv::WINDOW_KEEPRATIO);
-	cv::imshow("test2", shadowsRemovedGray);
+	cv::imshow("test2", origImgCopy);
+
+	GetNextObjectType(true);
+	size_t itemIndex = 0;
+	for (auto& isolatedItemMatrix : isolatedItemsMats) {
+		if (extracted_contours[itemIndex].object_type_id == -1) {
+			DoTemplateMatching(isolatedItemMatrix, extracted_contours, itemsOnPitchBlack, itemIndex);
+		}
+		itemIndex++;
+	}
+	
+	itemIndex = 0;
+	for (auto& contour : extracted_contours) {
+		cv::drawContours(origImg, contours, itemIndex, ColorPool::Instance().GetColorById(contour.object_type_id), 3);
+		itemIndex++;
+	}
+
+	cv::namedWindow("test3", cv::WINDOW_KEEPRATIO);
+	cv::imshow("test3", origImg);
 
 	cv::waitKey(0);
 	cv::destroyAllWindows();
+
+	cv::imwrite("initialRecognition.jpg", origImgCopy);
+	cv::imwrite("finishedRecognition.jpg", origImg);
 
 	return 0;
 }

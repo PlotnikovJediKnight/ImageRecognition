@@ -15,6 +15,10 @@ ContourColor ColorPool::GetNextColor(){
 	return stock[ind++];
 }
 
+ContourColor ColorPool::GetColorById(size_t id) {
+	return stock[id];
+}
+
 ColorPool::ColorPool() {
 	stock = {
 		Scalar(255, 0, 0),
